@@ -23,7 +23,7 @@ defmodule PolymorphicEmbed do
           {type_name, module: module}
 
         module ->
-          {module.__info__(:module), module}
+          {module.__info__(:module), module: module}
       end)
       |> Enum.map(fn
         {type_name, type_opts} ->
