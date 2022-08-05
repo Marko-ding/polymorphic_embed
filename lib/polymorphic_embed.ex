@@ -21,6 +21,9 @@ defmodule PolymorphicEmbed do
 
         {type_name, module} ->
           {type_name, module: module}
+
+        module ->
+          {module.__info__(:module), module}
       end)
       |> Enum.map(fn
         {type_name, type_opts} ->
@@ -103,26 +106,45 @@ defmodule PolymorphicEmbed do
       {:ok, map} when map == %{} and not array? ->
         changeset
 
-      {:ok, params_for_field} ->
-        cond do
-          array? and is_list(params_for_field) ->
-            cast_polymorphic_embeds_many(
-              changeset,
-              field,
-              changeset_fun,
-              params_for_field,
-              field_options
-            )
+      {:ok, params_for_field} when array? and is_list(params_for_field) ->
+        params_for_field =
+          Enum.map(params_for_field, fn
+            %module{} = struct ->
+              struct
+              |> Map.from_struct()
+              |> Map.put(:__type__, Atom.to_string(module))
 
-          not array? and is_map(params_for_field) ->
-            cast_polymorphic_embeds_one(
-              changeset,
-              field,
-              changeset_fun,
-              params_for_field,
-              field_options
-            )
-        end
+            p ->
+              p
+          end)
+
+        cast_polymorphic_embeds_many(
+          changeset,
+          field,
+          changeset_fun,
+          params_for_field,
+          field_options
+        )
+
+      {:ok, params_for_field} when not array? and is_map(params_for_field) ->
+        params_for_field =
+          case params_for_field do
+            %module{} = struct ->
+              struct
+              |> Map.from_struct()
+              |> Map.put(:__type__, Atom.to_string(module))
+
+            %{} ->
+              params_for_field
+          end
+
+        cast_polymorphic_embeds_one(
+          changeset,
+          field,
+          changeset_fun,
+          params_for_field,
+          field_options
+        )
     end
   end
 
@@ -351,7 +373,7 @@ defmodule PolymorphicEmbed do
 
   @doc """
   Returns the possible types for a given schema and field
-  
+
   you can call `types/2` like this:
       PolymorphicEmbed.types(MySchema, :contexts)
       #=> [:location, :age, :device]

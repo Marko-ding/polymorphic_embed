@@ -1,5 +1,27 @@
 # Polymorphic embeds for Ecto
 
+## Changes
+
+Change the `types` parameter to accept module and not only a tuple.
+
+We set the name of the module `module.__info(:module)` as key for the `type`.
+
+```elixir
+   field :channel, PolymorphicEmbed,
+    types: [
+      MyApp.Channel.SMS,
+      MyApp.Channel.Email
+    ],
+    on_type_not_found: :raise,
+    on_replace: :update
+```
+
+### TODO
+
+- [ ] Add tests for the new functionality.
+
+---
+
 `polymorphic_embed` brings support for polymorphic/dynamic embedded schemas in Ecto.
 
 Ecto's `embeds_one` and `embeds_many` macros require a specific schema module to be specified. This library removes this restriction by
@@ -87,9 +109,10 @@ end
 
 #### Options
 
-* `:required` – if the embed is a required field.
+- `:required` – if the embed is a required field.
 
-* `:with` – allows you to specify a custom changeset. Either pass an MFA or a function:
+- `:with` – allows you to specify a custom changeset. Either pass an MFA or a function:
+
 ```elixir
 changeset
 |> cast_polymorphic_embed(:channel,
@@ -108,6 +131,7 @@ The `:types` option for the `PolymorphicEmbed` custom type contains a keyword li
 There are two strategies to detect the right embedded schema to use:
 
 1.
+
 ```elixir
 [sms: MyApp.Channel.SMS]
 ```
@@ -116,6 +140,7 @@ When receiving parameters to be casted (e.g. from a form), we expect a `"__type_
 containing the type of channel (`"email"` or `"sms"`).
 
 2.
+
 ```elixir
 [email: [
   module: MyApp.Channel.Email,
@@ -146,17 +171,19 @@ field :contexts, {:array, PolymorphicEmbed},
 
 #### Options
 
-* `:types` – discussed above.
-* `:type_field` – specify a custom type field. Defaults to `:__type__`.
-* `:on_type_not_found` – specify what to do if the embed's type cannot be inferred.
+- `:types` – discussed above.
+- `:type_field` – specify a custom type field. Defaults to `:__type__`.
+- `:on_type_not_found` – specify what to do if the embed's type cannot be inferred.
   Possible values are
+
   - `:raise`: raise an error
   - `:changeset_error`: add a changeset error
   - `:nilify`: replace the data by `nil`; only for single (non-list) embeds
   - `:ignore`: ignore the data; only for lists of embeds
 
   By default, a changeset error "is invalid" is added.
-* `:on_replace` – mandatory option that can only be set to `:update` for a single embed and `:delete` for a list of
+
+- `:on_replace` – mandatory option that can only be set to `:update` for a single embed and `:delete` for a list of
   embeds (we force a value as the default value of this option for `embeds_one` and `embeds_many` is `:raise`).
 
 ### Displaying form inputs and errors in Phoenix templates
@@ -242,12 +269,12 @@ The function `Ecto.changeset.traverse_errors/2` won't include the errors of poly
 
 ## Features
 
-* Detect which types to use for the data being `cast`-ed, based on fields present in the data (no need for a *type* field in the data)
-* Run changeset validations when a `changeset/2` function is present (when absent, the library will introspect the fields to cast)
-* Support for nested polymorphic embeds
-* Support for nested `embeds_one`/`embeds_many` embeds
-* Display form inputs for polymorphic embeds in Phoenix templates
-* Tests to ensure code quality
+- Detect which types to use for the data being `cast`-ed, based on fields present in the data (no need for a _type_ field in the data)
+- Run changeset validations when a `changeset/2` function is present (when absent, the library will introspect the fields to cast)
+- Support for nested polymorphic embeds
+- Support for nested `embeds_one`/`embeds_many` embeds
+- Display form inputs for polymorphic embeds in Phoenix templates
+- Tests to ensure code quality
 
 ## Installation
 
