@@ -46,16 +46,16 @@ Find the schema code and explanations below.
 defmodule MyApp.Reminder do
   use Ecto.Schema
   import Ecto.Changeset
-  import PolymorphicEmbed, only: [cast_polymorphic_embed: 3]
+  import PolymorphicEmbed
 
   schema "reminders" do
     field :date, :utc_datetime
     field :text, :string
 
-    field :channel, PolymorphicEmbed,
+    polymorphic_embeds_one :channel,
       types: [
         sms: MyApp.Channel.SMS,
-        email: [module: MyApp.Channel.Email, identify_by_fields: [:address, :confirmed]]
+        email: MyApp.Channel.Email
       ],
       on_type_not_found: :raise,
       on_replace: :update
@@ -102,6 +102,14 @@ defmodule MyApp.Channel.SMS do
   end
 end
 ```
+
+In your migration file, you may use the type `:map` for both `polymorphic_embeds_one/2` and `polymorphic_embeds_many/2` fields.
+
+```elixir
+add(:channel, :map)
+```
+
+[It is not recommended](https://hexdocs.pm/ecto/3.8.4/Ecto.Schema.html#embeds_many/3) to use `{:array, :map}` for a list of embeds.
 
 ### `cast_polymorphic_embed/3`
 
@@ -159,7 +167,7 @@ useful if you need to store incomplete data, which might not allow identifying t
 Lists of polymorphic embeds are also supported:
 
 ```elixir
-field :contexts, {:array, PolymorphicEmbed},
+polymorphic_embeds_many :contexts,
   types: [
     location: MyApp.Context.Location,
     age: MyApp.Context.Age,
@@ -283,7 +291,7 @@ Add `polymorphic_embed` for Elixir as a dependency in your `mix.exs` file:
 ```elixir
 def deps do
   [
-    {:polymorphic_embed, "~> 2.0.0"}
+    {:polymorphic_embed, "~> 3.0.5"}
   ]
 end
 ```

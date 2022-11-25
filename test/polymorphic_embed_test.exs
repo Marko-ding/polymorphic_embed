@@ -1,10 +1,11 @@
 defmodule PolymorphicEmbedTest do
   use ExUnit.Case
+
   doctest PolymorphicEmbed
 
+  import Phoenix.Component
   import Phoenix.HTML
   import Phoenix.HTML.Form
-  import Phoenix.LiveView.Helpers
   import Phoenix.LiveViewTest
   import PolymorphicEmbed.HTML.Form
 
@@ -519,6 +520,83 @@ defmodule PolymorphicEmbedTest do
       |> Repo.one()
 
     assert email_module == reminder.channel.__struct__
+  end
+
+  test "wrong type as string adds error in changeset" do
+    generator = :polymorphic
+    reminder_module = get_module(Reminder, generator)
+
+    attrs = %{
+      date: ~U[2020-05-28 02:57:19Z],
+      text: "This is an Email reminder",
+      channel: %{
+        my_type_field: "unknown type"
+      }
+    }
+
+    insert_result =
+      struct(reminder_module)
+      |> reminder_module.changeset(attrs)
+      |> Repo.insert()
+
+    assert {:error, %Ecto.Changeset{errors: [channel: {"is invalid", []}]}} = insert_result
+  end
+
+  test "wrong type as string raises" do
+    generator = :polymorphic
+    reminder_module = get_module(Reminder, generator)
+
+    sms_reminder_attrs = %{
+      date: ~U[2020-05-28 02:57:19Z],
+      text: "This is an SMS reminder",
+      channel: %{
+        my_type_field: "sms",
+        number: "02/807.05.53",
+        country_code: 1,
+        result: %{success: true},
+        attempts: [],
+        provider: %{
+          __type__: "unknown type",
+          api_key: "foo"
+        }
+      }
+    }
+
+    assert_raise RuntimeError, ~r"could not infer polymorphic embed from data", fn ->
+      struct(reminder_module)
+      |> reminder_module.changeset(sms_reminder_attrs)
+      |> Repo.insert()
+    end
+  end
+
+  test "pass non-changeset as first argument to cast_polymorphic_embed/3 should fail" do
+    generator = :polymorphic
+
+    reminder_module = get_module(Reminder, generator)
+
+    assert_raise RuntimeError,
+                 ~r"cast_polymorphic_embed/3 only accepts a changeset as first argument",
+                 fn ->
+                   PolymorphicEmbed.cast_polymorphic_embed(struct(reminder_module), :channel)
+                 end
+  end
+
+  test "cast embed after change/2 call should succeed" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+
+      changeset = Ecto.Changeset.change(struct(reminder_module))
+
+      changeset =
+        if polymorphic?(generator) do
+          PolymorphicEmbed.cast_polymorphic_embed(changeset, :channel)
+        else
+          Ecto.Changeset.cast_embed(changeset, :channel)
+        end
+
+      assert changeset.valid?
+      assert map_size(changeset.changes) == 0
+    end
   end
 
   test "loading a nil embed" do
@@ -1185,6 +1263,154 @@ defmodule PolymorphicEmbedTest do
     end
   end
 
+  test "generate ID for single embed in data" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+      sms_module = get_module(Channel.SMS, generator)
+
+      struct =
+        struct(reminder_module,
+          date: ~U[2020-05-28 02:57:19Z],
+          text: "This is an SMS reminder #{generator}",
+          channel: struct(sms_module)
+        )
+
+      changeset = reminder_module.changeset(struct, %{})
+
+      if polymorphic?(generator) do
+        assert changeset.changes.channel.id
+      else
+        assert map_size(changeset.changes) == 0
+      end
+
+      struct = Repo.insert!(changeset)
+
+      if polymorphic?(generator) do
+        assert changeset.changes.channel.id == struct.channel.id
+      else
+        assert struct.channel.id
+      end
+    end
+  end
+
+  test "generate ID for single embed in changes" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+
+      struct =
+        struct(reminder_module,
+          date: ~U[2020-05-28 02:57:19Z],
+          text: "This is an SMS reminder #{generator}"
+        )
+
+      changeset =
+        reminder_module.changeset(
+          struct,
+          %{
+            channel: %{
+              my_type_field: "sms",
+              number: "111",
+              country_code: 1,
+              provider: %{
+                __type__: "twilio",
+                api_key: "foo"
+              }
+            }
+          }
+        )
+
+      if polymorphic?(generator) do
+        assert changeset.changes.channel.id
+      else
+        refute Map.has_key?(changeset.changes.channel, :id)
+      end
+
+      struct = Repo.insert!(changeset)
+
+      if polymorphic?(generator) do
+        assert changeset.changes.channel.id == struct.channel.id
+      else
+        assert struct.channel.id
+      end
+    end
+  end
+
+  test "generate ID for list of embeds in data" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+      location_module = get_module(Reminder.Context.Location, generator)
+
+      struct =
+        struct(reminder_module,
+          date: ~U[2020-05-28 02:57:19Z],
+          text: "This is an SMS reminder #{generator}",
+          contexts: [
+            struct(location_module),
+            struct(location_module)
+          ]
+        )
+
+      changeset = reminder_module.changeset(struct, %{})
+
+      if polymorphic?(generator) do
+        assert Enum.at(changeset.changes.contexts, 0).id
+        assert Enum.at(changeset.changes.contexts, 1).id
+      else
+        assert map_size(changeset.changes) == 0
+      end
+
+      struct = Repo.insert!(changeset)
+
+      if polymorphic?(generator) do
+        assert Enum.at(changeset.changes.contexts, 0).id == Enum.at(struct.contexts, 0).id
+        assert Enum.at(changeset.changes.contexts, 1).id == Enum.at(struct.contexts, 1).id
+      else
+        assert Enum.at(struct.contexts, 0).id
+        assert Enum.at(struct.contexts, 1).id
+      end
+    end
+  end
+
+  test "generate ID for list of embeds in changes" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+
+      struct =
+        struct(reminder_module,
+          date: ~U[2020-05-28 02:57:19Z],
+          text: "This is an SMS reminder #{generator}"
+        )
+
+      changeset =
+        reminder_module.changeset(
+          struct,
+          %{
+            contexts: [
+              %{__type__: "location", address: "A"},
+              %{__type__: "location", address: "B"}
+            ]
+          }
+        )
+
+      if polymorphic?(generator) do
+        assert Enum.at(changeset.changes.contexts, 0).id
+        assert Enum.at(changeset.changes.contexts, 1).id
+      else
+        refute Map.has_key?(Enum.at(changeset.changes.contexts, 0), :id)
+      end
+
+      struct = Repo.insert!(changeset)
+
+      if polymorphic?(generator) do
+        assert Enum.at(changeset.changes.contexts, 0).id == Enum.at(struct.contexts, 0).id
+        assert Enum.at(changeset.changes.contexts, 1).id == Enum.at(struct.contexts, 1).id
+      else
+        assert Enum.at(struct.contexts, 0).id
+        assert Enum.at(struct.contexts, 1).id
+      end
+    end
+  end
+
   test "validates lists of polymorphic embeds" do
     for generator <- @generators do
       reminder_module = get_module(Reminder, generator)
@@ -1326,6 +1552,32 @@ defmodule PolymorphicEmbedTest do
         assert [] = errors
         assert %{type: {"can't be blank", [validation: :required]}} = Map.new(device_errors)
       end
+    end
+  end
+
+  test "list of embeds defaults to []" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+
+      assert struct(reminder_module).contexts == []
+    end
+  end
+
+  test "list of embeds defaults to [] after insert" do
+    for generator <- @generators do
+      reminder_module = get_module(Reminder, generator)
+
+      sms_reminder_attrs = %{
+        text: "This is an SMS reminder #{generator}",
+        date: DateTime.utc_now()
+      }
+
+      assert {:ok, inserted_result} =
+               struct(reminder_module)
+               |> reminder_module.changeset(sms_reminder_attrs)
+               |> Repo.insert()
+
+      assert inserted_result.contexts == []
     end
   end
 
@@ -1844,7 +2096,7 @@ defmodule PolymorphicEmbedTest do
 
     test "returns type from string parameters" do
       reminder_module = get_module(Reminder, :polymorphic)
-      attrs = %{"channel" => %{"__type__" => "email"}}
+      attrs = %{"channel" => %{"my_type_field" => "email"}}
 
       changeset =
         reminder_module
@@ -1861,7 +2113,7 @@ defmodule PolymorphicEmbedTest do
 
     test "returns type from atom parameters" do
       reminder_module = get_module(Reminder, :polymorphic)
-      attrs = %{channel: %{__type__: :email}}
+      attrs = %{channel: %{my_type_field: :email}}
 
       changeset =
         reminder_module
@@ -1871,6 +2123,23 @@ defmodule PolymorphicEmbedTest do
       safe_form_for(changeset, fn f ->
         assert PolymorphicEmbed.HTML.Form.get_polymorphic_type(f, reminder_module, :channel) ==
                  :email
+
+        text_input(f, :text)
+      end)
+    end
+
+    test "returns type from parameters while type field is custom" do
+      reminder_module = get_module(Reminder, :polymorphic)
+      attrs = %{channel: %{__type__: :email}}
+
+      changeset =
+        reminder_module
+        |> struct()
+        |> reminder_module.changeset(attrs)
+
+      safe_form_for(changeset, fn f ->
+        assert PolymorphicEmbed.HTML.Form.get_polymorphic_type(f, reminder_module, :channel) ==
+                 nil
 
         text_input(f, :text)
       end)
@@ -1889,6 +2158,27 @@ defmodule PolymorphicEmbedTest do
                  nil
 
         text_input(f, :text)
+      end)
+    end
+
+    # https://github.com/mathieuprog/polymorphic_embed/issues/59#issuecomment-1255774332
+    test "make sure that we do not 'absorb' atoms" do
+      opts = [
+        types: [
+          sms: PolymorphicEmbed.Channel.SMS,
+          email: [
+            module: PolymorphicEmbed.Channel.Email,
+            identify_by_fields: [:address, :confirmed]
+          ]
+        ],
+        on_replace: :update,
+        type_field: :my_type_field
+      ]
+
+      PolymorphicEmbed.init(opts)
+      |> Map.fetch!(:types_metadata)
+      |> Enum.each(fn %{type: type} ->
+        assert is_atom(type)
       end)
     end
   end

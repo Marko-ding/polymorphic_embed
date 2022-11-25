@@ -1,6 +1,20 @@
 defmodule PolymorphicEmbed do
   use Ecto.ParameterizedType
 
+  defmacro polymorphic_embeds_one(field_name, opts) do
+    quote do
+      field(unquote(field_name), PolymorphicEmbed, unquote(opts))
+    end
+  end
+
+  defmacro polymorphic_embeds_many(field_name, opts) do
+    opts = Keyword.merge(opts, default: [])
+
+    quote do
+      field(unquote(field_name), {:array, PolymorphicEmbed}, unquote(opts))
+    end
+  end
+
   @impl true
   def type(_params), do: :map
 
@@ -28,7 +42,7 @@ defmodule PolymorphicEmbed do
       |> Enum.map(fn
         {type_name, type_opts} ->
           %{
-            type: to_string(type_name),
+            type: type_name,
             module: Keyword.fetch!(type_opts, :module),
             identify_by_fields:
               type_opts |> Keyword.get(:identify_by_fields, []) |> Enum.map(&to_string/1)
@@ -36,25 +50,22 @@ defmodule PolymorphicEmbed do
       end)
 
     %{
-      types_metadata: types_metadata,
+      default: Keyword.get(opts, :default, nil),
+      on_replace: Keyword.fetch!(opts, :on_replace),
       on_type_not_found: Keyword.get(opts, :on_type_not_found, :changeset_error),
       type_field: Keyword.get(opts, :type_field, :__type__) |> to_string(),
-      on_replace: Keyword.fetch!(opts, :on_replace)
+      types_metadata: types_metadata
     }
   end
 
-  def cast_polymorphic_embed(changeset, field, cast_options \\ []) do
+  def cast_polymorphic_embed(changeset, field, cast_options \\ [])
+
+  def cast_polymorphic_embed(%Ecto.Changeset{} = changeset, field, cast_options) do
     field_options = get_field_options(changeset.data.__struct__, field)
 
-    %{array?: array?, on_replace: on_replace, types_metadata: types_metadata} = field_options
+    raise_if_invalid_options(field, field_options)
 
-    if array? and on_replace != :delete do
-      raise "`:on_replace` option for field #{inspect(field)} must be set to `:delete`"
-    end
-
-    if not array? and on_replace != :update do
-      raise "`:on_replace` option for field #{inspect(field)} must be set to `:update`"
-    end
+    %{array?: array?, types_metadata: types_metadata} = field_options
 
     required = Keyword.get(cast_options, :required, false)
     with = Keyword.get(cast_options, :with, nil)
@@ -78,7 +89,7 @@ defmodule PolymorphicEmbed do
         end
     end
 
-    changeset.params
+    (changeset.params || %{})
     |> Map.fetch(to_string(field))
     |> case do
       :error when required ->
@@ -146,6 +157,10 @@ defmodule PolymorphicEmbed do
           field_options
         )
     end
+  end
+
+  def cast_polymorphic_embed(_, _, _) do
+    raise "cast_polymorphic_embed/3 only accepts a changeset as first argument"
   end
 
   defp cast_polymorphic_embeds_one(changeset, field, changeset_fun, params, field_options) do
@@ -368,7 +383,6 @@ defmodule PolymorphicEmbed do
   defp do_get_polymorphic_type(module, types_metadata) do
     get_metadata_for_module(module, types_metadata)
     |> Map.fetch!(:type)
-    |> String.to_atom()
   end
 
   @doc """
@@ -380,7 +394,7 @@ defmodule PolymorphicEmbed do
   """
   def types(schema, field) do
     %{types_metadata: types_metadata} = get_field_options(schema, field)
-    Enum.map(types_metadata, &String.to_existing_atom(&1.type))
+    Enum.map(types_metadata, & &1.type)
   end
 
   defp get_metadata_for_module(module, types_metadata) do
@@ -389,7 +403,7 @@ defmodule PolymorphicEmbed do
 
   defp get_metadata_for_type(type, types_metadata) do
     type = to_string(type)
-    Enum.find(types_metadata, &(type == &1.type))
+    Enum.find(types_metadata, &(type == to_string(&1.type)))
   end
 
   defp get_field_options(schema, field) do
@@ -403,6 +417,20 @@ defmodule PolymorphicEmbed do
       {:array, {:parameterized, PolymorphicEmbed, options}} -> Map.put(options, :array?, true)
       {_, {:parameterized, PolymorphicEmbed, options}} -> Map.put(options, :array?, false)
       nil -> raise ArgumentError, "#{field} is not a polymorphic embed"
+    end
+  end
+
+  defp raise_if_invalid_options(field, %{array?: array?, default: default, on_replace: on_replace}) do
+    if array? and default != [] do
+      raise "`:default` option for list of polymorphic embeds is required and must be set to `[]`"
+    end
+
+    if array? and on_replace != :delete do
+      raise "`:on_replace` option for field #{inspect(field)} must be set to `:delete`"
+    end
+
+    if not array? and on_replace != :update do
+      raise "`:on_replace` option for field #{inspect(field)} must be set to `:update`"
     end
   end
 
@@ -460,7 +488,14 @@ defmodule PolymorphicEmbed do
     end)
   end
 
+  defp autogenerate_id([], _action), do: []
+
+  defp autogenerate_id([schema | rest], action) do
+    [autogenerate_id(schema, action) | autogenerate_id(rest, action)]
+  end
+
   defp autogenerate_id(schema, :update) do
+    # in case there is no primary key, Ecto.primary_key/1 returns an empty keyword list []
     for {_, nil} <- Ecto.primary_key(schema) do
       raise("no primary key found in #{inspect(schema)}")
     end

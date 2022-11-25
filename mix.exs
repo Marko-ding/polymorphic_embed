@@ -1,7 +1,7 @@
 defmodule PolymorphicEmbed.MixProject do
   use Mix.Project
 
-  @version "2.0.0"
+  @version "3.0.5"
 
   def project do
     [
@@ -19,7 +19,23 @@ defmodule PolymorphicEmbed.MixProject do
       # ExDoc
       name: "Polymorphic Embed",
       source_url: "https://github.com/mathieuprog/polymorphic_embed",
-      docs: docs()
+      docs: docs(),
+
+      # Dialyzer
+      dialyzer: [
+        plt_add_apps: [:mix, :phoenix_html],
+        plt_file: {:no_warn, ".plts/polymorphic.plt"}
+      ],
+
+      # ExCoveralls
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.github": :test
+      ]
     ]
   end
 
@@ -31,16 +47,19 @@ defmodule PolymorphicEmbed.MixProject do
 
   defp deps do
     [
-      {:ecto, "~> 3.8"},
-      {:jason, "~> 1.3"},
+      {:ecto, "~> 3.9"},
+      {:jason, "~> 1.4"},
       {:phoenix_html, "~> 2.14 or ~> 3.2", optional: true},
       {:ex_doc, "~> 0.28", only: :dev},
-      {:ecto_sql, "~> 3.8", only: :test},
+      {:ecto_sql, "~> 3.9", only: :test},
       {:postgrex, "~> 0.16", only: :test},
       {:query_builder, "~> 1.0", only: :test},
       {:phoenix_ecto, "~> 4.4", only: :test},
-      {:phoenix_live_view, "~> 0.17", only: :test},
-      {:floki, "~> 0.33", only: :test}
+      {:phoenix_live_view, "~> 0.18", only: :test},
+      {:floki, "~> 0.33", only: :test},
+      {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.15", only: :test},
+      {:credo, "~> 1.6", only: [:dev, :test], runtime: false}
     ]
   end
 
